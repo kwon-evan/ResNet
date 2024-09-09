@@ -7,12 +7,17 @@ from resnet import ResNet
 from rich.progress import track
 from torch.utils.data import DataLoader
 
-BATCH_SIZE = 32
+BATCH_SIZE = 6400
 LEARNING_RATE = 0.0002
 NUM_EPOCHS = 100
 
 if __name__ == "__main__":
-    device = torch.device("mps")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
 
     ## load dataset
     print("Loading dataset...")
@@ -63,20 +68,20 @@ if __name__ == "__main__":
     ## initialize model
     print("Compiling model...")
     resnet = ResNet(base_dim=64).to(device)
-    # resnet = torch.compile(resnet)
     print("Done!")
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(resnet.parameters(), lr=LEARNING_RATE)
 
     print("Training model...")
     loss = 0.0
+    acc = 0.0
     losses = []
-    for i in track(
-        range(NUM_EPOCHS),
-        description="Training...",
-        total=NUM_EPOCHS,
-    ):
-        for j, batch in enumerate(train_loader):
+    for i in range(NUM_EPOCHS):
+        for j, batch in track(
+            enumerate(train_loader),
+            total=len(train_loader),
+            description=f"Epoch {i}/{NUM_EPOCHS}, loss: {loss:.4f}, acc: {acc:.4f}",
+        ):
             data, target = batch
             data = data.to(device)
             target = target.to(device)
@@ -84,10 +89,11 @@ if __name__ == "__main__":
             optimizer.zero_grad()
             output = resnet(data)
             loss = criterion(output, target)
+            acc = (output.argmax(1) == target).float().mean()
             loss.backward()
             optimizer.step()
 
         if i % 10 == 0:
             print(f"Epoch: {i} | Loss: {loss}")
             losses.append(loss.cpu().detach().numpy())
-    print(f"Final Loss: {loss} | Final Accuracy: {resnet.test(test_loader)}")
+    print(f"Final Loss: {loss}, Final Accuracy: {acc}")
